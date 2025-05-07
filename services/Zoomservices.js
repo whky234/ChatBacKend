@@ -1,14 +1,14 @@
 const fetch = require("node-fetch");
 const base64 = require("base-64");
+require("dotenv").config();
 
-const Account_ID = "I79HtvEYTKSU80_jPM64_w";
-const CLIENT_ID = "VXwVyedrSTyqKqnBhwsa8Q";
-const CLIENT_SECRET = "AWWW7qGsbz4tdwX7TOrumWQD9jkMkPfP";
+
+
 
 const getAuthHeaders = () => {
     return {
         Authorization: `Basic ${base64.encode(
-            `${CLIENT_ID}:${CLIENT_SECRET}`
+            `${process.env.CLIENT_ID}:${process.env.CLIENT_SECRET}`
         )}`,
         "Content-Type": "application/json",
     };
@@ -17,7 +17,7 @@ const getAuthHeaders = () => {
 const generateZoomAccessToken = async () => {
     try {
         const response = await fetch(
-            `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${Account_ID}`,
+            `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${process.env.Account_ID}`,
             {
                 method: "POST",
                 headers: getAuthHeaders(),
