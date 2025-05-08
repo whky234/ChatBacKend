@@ -53,7 +53,7 @@ const generateZoomMeeting = async () => {
                     settings: {
                         allow_multiple_devices: true,
                         calendar_type: 1,
-                        contact_email: "h39483808@gmail.com",
+                        contact_email: `${process.env.email}`,
                         contact_name: "Hasni",
                         email_notification: true,
                         encryption_type: "enhanced_encryption",
