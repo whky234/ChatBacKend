@@ -45,12 +45,19 @@ exports.sendMessageToGroup = async (req, res) => {
       receivers: receiversList,
     };
 
-    if (req.file) {
-      const fileUrl = `/filesharing/${req.file.filename}`;
-      if (req.file.mimetype.startsWith("audio")) {
-        messageData.audioUrl = fileUrl;
-      } else {
-        messageData.fileUrl = fileUrl;
+     // ✅ Support for multiple files
+    if (req.files && req.files.length > 0) {
+      const fileUrls = [];
+      req.files.forEach(file => {
+        const filePath = `/filesharing/${file.filename}`;
+        if (file.mimetype.startsWith("audio")) {
+          messageData.audioUrl = filePath;
+        } else {
+          fileUrls.push(filePath);
+        }
+      });
+      if (fileUrls.length > 0) {
+        messageData.fileUrl = fileUrls;
       }
     }
 

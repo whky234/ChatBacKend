@@ -49,6 +49,11 @@ exports.sendMessage = async (req, res) => {
   const sender = req.user.id;
   console.log("Received data:", req.body);
 
+  const cleanText = text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   const isConnected = await checkInternetConnection();
   if (!isConnected) {
     return res.status(503).json({ message: "No internet connection. Please try again later." });
@@ -57,6 +62,11 @@ exports.sendMessage = async (req, res) => {
   try {
     if (!receiver && !messageId) {
       return res.status(400).json({ message: "Receiver or message to forward is required." });
+    }
+
+    const wordCount = cleanText.split(' ').length;
+    if (wordCount > 1000) {
+      return res.status(400).json({ message: "Text exceeds maximum length of 1000 words." });
     }
 
     let messageData = { sender, receiver };
@@ -85,19 +95,24 @@ exports.sendMessage = async (req, res) => {
       return res.status(403).json({ message: "You cannot send messages to this user." });
     }
 
-    if (req.file) {
-      const fileUrl = `/filesharing/${req.file.filename}`;
-      if (req.file.mimetype.startsWith("audio")) {
-        messageData.audioUrl = fileUrl;
-      } else {
-        messageData.fileUrl = fileUrl;
+    // ✅ Support for multiple files
+    if (req.files && req.files.length > 0) {
+      const fileUrls = [];
+      req.files.forEach(file => {
+        const filePath = `/filesharing/${file.filename}`;
+        if (file.mimetype.startsWith("audio")) {
+          messageData.audioUrl = filePath;
+        } else {
+          fileUrls.push(filePath);
+        }
+      });
+      if (fileUrls.length > 0) {
+        messageData.fileUrl = fileUrls;
       }
     }
 
     const message = new Message(messageData);
     await message.save();
-
-   
 
     res.status(201).json({ message: "Message sent successfully", message });
   } catch (error) {
@@ -105,6 +120,13 @@ exports.sendMessage = async (req, res) => {
     res.status(500).json({ message: "Error sending message", error });
   }
 };
+
+
+
+
+  // Convert double newlines to paragraph breaks
+ 
+
 
 
 

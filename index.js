@@ -31,7 +31,7 @@ const taskRoutes = require("./routes/taskroute"); // Import task routes
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 } = require("uuid");
 
 connectdb();
 scheduleTaskReminders();
@@ -50,7 +50,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 app.use(
   session({
@@ -177,6 +178,7 @@ const onlineUsers = new Map(); // Store userId -> socketId
 const userSocketMap = new Map();
 const rooms = new Map();
 const room = new Map();
+const users = new Map(); // Maps usernames to socket IDs
 
 const initializeSocketServer = (server) => {
   io = require("socket.io")(server, {
@@ -375,8 +377,6 @@ function handleIndividualSockets(socket, io) {
           sender: { _id: fromUserId, name: senderName },
           receiver: { _id: toUserId },
         });
-
-       
 
         const receiverIsActive = activeChats[toUserId] === fromUserId;
 
@@ -585,75 +585,146 @@ function handleIndividualSockets(socket, io) {
 
 // Handle group socket events
 function handleGroupSockets(socket, io) {
-// Create room with random ID
-socket.on('create-room', () => {
-  const roomId = uuidv4();
-  socket.join(roomId);
-  room.set(roomId, { host: socket.id, participants: [socket.id] });
+  // Register user with a username
+  socket.on("register-user", (username) => {
+    users.set(username, socket.id);
+    socket.emit("user-registered", { success: true });
+    console.log(`User ${username} registered with ID ${socket.id}`);
+  });
 
-  socket.emit('room-created', { roomId }); // Send back the generated room ID
-  console.log(`Room ${roomId} created by ${socket.id}`);
-});
+  // Create room with random ID
+  socket.on("create-room", () => {
+    const roomId = uuidv4();
+    socket.join(roomId);
+    room.set(roomId, { host: socket.id, participants: [socket.id] });
 
-// Join existing room
-socket.on('join-room', (roomId) => {
-  const rm = room.get(roomId);
-  if (rm) {
+    socket.emit("room-created", { roomId }); // Send back the generated room ID
+    console.log(`Room ${roomId} created by ${socket.id}`);
+  });
+
+  // Join existing room
+  socket.on("join-room", (roomId) => {
+    const rm = room.get(roomId);
+    if (rm) {
       socket.join(roomId);
       rm.participants.push(socket.id);
 
-      socket.to(roomId).emit('user-joined', socket.id);
-      socket.emit('room-users', rm.participants.filter(id => id !== socket.id));
+      socket.to(roomId).emit("user-joined", socket.id);
+      socket.emit(
+        "room-users",
+        rm.participants.filter((id) => id !== socket.id)
+      );
 
       console.log(`User ${socket.id} joined room ${roomId}`);
-  } else {
-      socket.emit('room-error', 'Room not found');
-  }
-});
+    } else {
+      socket.emit("room-error", "Room not found");
+    }
+  });
 
-// Leave room
-socket.on('leave-room', (roomId) => {
-  const rm = room.get(roomId);
-  if (rm) {
-      rm.participants = rm.participants.filter(id => id !== socket.id);
+  // Leave room
+  socket.on("leave-room", (roomId) => {
+    const rm = room.get(roomId);
+    if (rm) {
+      rm.participants = rm.participants.filter((id) => id !== socket.id);
       socket.leave(roomId);
-      socket.to(roomId).emit('user-left', socket.id);
+      socket.to(roomId).emit("user-left", socket.id);
       console.log(`User ${socket.id} left room ${roomId}`);
-      
+
       // Clean up room if empty
       if (rm.participants.length === 0) {
-          room.delete(roomId);
-          console.log(`Room ${roomId} deleted (empty)`);
+        room.delete(roomId);
+        console.log(`Room ${roomId} deleted (empty)`);
       }
-  }
-});
+    }
+  });
 
-// End call (host only)
-socket.on('end-call', (roomId) => {
-  const rm = room.get(roomId);
-  if (rm && rm.host === socket.id) {
-      io.to(roomId).emit('call-ended');
-      rm.participants.forEach(participantId => {
-          const s = io.sockets.sockets.get(participantId);
-          if (s) s.leave(roomId);
+  // End call (host only)
+  socket.on("end-call", (roomId) => {
+    const rm = room.get(roomId);
+    if (rm && rm.host === socket.id) {
+      io.to(roomId).emit("call-ended");
+      rm.participants.forEach((participantId) => {
+        const s = io.sockets.sockets.get(participantId);
+        if (s) s.leave(roomId);
       });
       room.delete(roomId);
       console.log(`Call ended and room ${roomId} closed by host ${socket.id}`);
+    }
+  });
+
+  // WebRTC signaling
+  socket.on("offer", ({ targetId, offer }) => {
+    io.to(targetId).emit("offer", { offer, from: socket.id });
+  });
+
+  socket.on("answer", ({ targetId, answer }) => {
+    io.to(targetId).emit("answer", { answer, from: socket.id });
+  });
+
+  socket.on("ice-candidate", ({ targetId, candidate }) => {
+    io.to(targetId).emit("ice-candidate", { candidate, from: socket.id });
+  });
+
+  // Private messaging via socket ID
+  socket.on("private-message", ({ to, message }) => {
+    io.to(to).emit("private-message", {
+      from: socket.id,
+      message,
+    });
+    console.log(`Private message from ${socket.id} to ${to}: ${message}`);
+  });
+
+  // Private messaging via username (optional)
+  socket.on("private-message-username", ({ username, message }) => {
+    const targetId = users.get(username);
+    if (targetId) {
+      io.to(targetId).emit("private-message", {
+        from: socket.id,
+        message,
+      });
+      console.log(
+        `Private message from ${socket.id} to ${username} (${targetId}): ${message}`
+      );
+    } else {
+      socket.emit("user-not-found", username);
+    }
+  });
+  
+ // Host removes participant
+socket.on("remove-participant", ({ roomId, targetId }) => {
+  const rm = room.get(roomId);
+  if (rm && rm.host === socket.id) {
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) {
+      targetSocket.leave(roomId);
+      targetSocket.emit("removed-from-room");
+      rm.participants = rm.participants.filter(id => id !== targetId);
+      socket.to(roomId).emit("user-left", targetId);
+      console.log(`Host ${socket.id} removed user ${targetId} from room ${roomId}`);
+    }
   }
 });
 
-// WebRTC signaling
-socket.on('offer', ({ targetId, offer }) => {
-  io.to(targetId).emit('offer', { offer, from: socket.id });
+
+// Host toggles mute/unmute for a participant
+socket.on("toggle-mute", ({ roomId, targetId, muted }) => {
+  const rm = room.get(roomId);
+  if (rm && rm.host === socket.id) {
+    io.to(targetId).emit("mute-status", { muted });
+    console.log(`Host ${socket.id} set mute=${muted} for ${targetId} in room ${roomId}`);
+  }
 });
 
-socket.on('answer', ({ targetId, answer }) => {
-  io.to(targetId).emit('answer', { answer, from: socket.id });
+// Host toggles mute/unmute for a participant
+socket.on("toggle-camera", ({ roomId, targetId, muted }) => {
+  const rm = room.get(roomId);
+  if (rm && rm.host === socket.id) {
+    io.to(targetId).emit("mute-camera", { muted });
+    console.log(`Host ${socket.id} set mute=${muted} for ${targetId} in room ${roomId}`);
+  }
 });
 
-socket.on('ice-candidate', ({ targetId, candidate }) => {
-  io.to(targetId).emit('ice-candidate', { candidate, from: socket.id });
-});
+
   socket.on("group:create", async (groupData) => {
     console.log("📡 Received group:create:", groupData); // Check if this prints
 
@@ -674,7 +745,7 @@ socket.on('ice-candidate', ({ targetId, candidate }) => {
     console.log("👨‍💼 Admin:", adminId);
 
     try {
-      // 🔥 Populate members with `name` and `_id`
+      // 🔍 Find the group with current members
       const group = await Group.findById(groupId).populate(
         "members",
         "name _id"
@@ -690,28 +761,32 @@ socket.on('ice-candidate', ({ targetId, candidate }) => {
         });
       }
 
+      // ✅ Validate that all new members exist
       const users = await User.find({ _id: { $in: newMembers } }, "name _id");
-
       if (users.length !== newMembers.length) {
         return socket.emit("error", { message: "Some members do not exist." });
       }
 
-      // ✅ Add only new members (avoid duplicates)
-      group.members = [
+      // ✅ Merge members (avoid duplicates), then convert all to ObjectIds
+      const updatedMemberIds = [
         ...new Set([
-          ...group.members.map((m) => m._id.toString()),
+          ...group.members.map((m) => m._id.toString?.() ?? m.toString()),
           ...newMembers,
         ]),
-      ];
-      // await group.save();
+      ].map((id) => new mongoose.Types.ObjectId(id)); // Important!
 
-      // 🔥 Repopulate to get updated member details
+      group.members = updatedMemberIds;
+
+      // ✅ Save the updated group
+      await group.save();
+
+      // ✅ Repopulate to get updated member names
       const updatedGroup = await Group.findById(groupId).populate(
         "members",
         "name _id"
       );
 
-      // ✅ Notify new members
+      // 📩 Notify new members individually
       newMembers.forEach((userId) => {
         io.to(userId).emit("group:member:added", {
           message: `You have been added to the group "${group.name}"`,
@@ -720,11 +795,12 @@ socket.on('ice-candidate', ({ targetId, candidate }) => {
         });
       });
 
-      // ✅ Notify all group members to update UI
+      // 📡 Notify all members in the group to update their UI
       io.to(groupId).emit("group:update", {
         groupId,
-        updatedMembers: updatedGroup.members, // Includes `name` and `_id`
+        updatedMembers: updatedGroup.members, // populated with `name` and `_id`
         groupDetails: updatedGroup,
+        admin: updatedGroup.admin.toString(), // optional
       });
 
       console.log("✅ Members added successfully:", newMembers);
@@ -783,18 +859,18 @@ socket.on('ice-candidate', ({ targetId, candidate }) => {
         return socket.emit("error", { message: "Group not found." });
       }
 
-      
-      group.members = group.members.filter(member => member.toString() !== userId);
-  
-      
+      group.members = group.members.filter(
+        (member) => member.toString() !== userId
+      );
+
       let newAdmin = null;
       if (group.admin.toString() === userId) {
         newAdmin = group.members.length > 0 ? group.members[0] : null;
         group.admin = newAdmin;
       }
-      
+
       await group.save();
-      
+
       // // If the admin leaves, assign a new admin
       //     if (group.admin.toString() === userId) {
       //       if (group.members.length > 0) {
@@ -815,9 +891,10 @@ socket.on('ice-candidate', ({ targetId, candidate }) => {
       });
 
       console.log(
-        `✅ User ${userId} left group ${groupId}, notifying members. ${group.members.map(m => m.toString())} members left. Admin reassigned to: ${group.admin} : 'null'}`
+        `✅ User ${userId} left group ${groupId}, notifying members. ${group.members.map(
+          (m) => m.toString()
+        )} members left. Admin reassigned to: ${group.admin} : 'null'}`
       );
-      
     } catch (error) {
       console.error("❌ Error processing group leave:", error);
       socket.emit("error", { message: "Error leaving group" });

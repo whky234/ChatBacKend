@@ -8,7 +8,7 @@ const MessageSchema = new mongoose.Schema({
   group: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },  // Optional for group messages
   text: { type: String, default: null },
   audioUrl: { type: String, default: null },  // Optional for audio messages
-  fileUrl: { type: String, default: null },   // Optional for file attachments
+fileUrl: { type: [String], default: [] },   // ✅ Supports multiple files
   edited: { type: Boolean, default: false },  // Indicates if the message was edited
 
   time: { type: Date, default: Date.now },    // Timestamp of the message

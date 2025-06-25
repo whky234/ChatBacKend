@@ -7,36 +7,30 @@ const messageController = require("../controllers/messages");
 // Configure storage for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Save all files directly in the "filesharing" folder
-    cb(null, "./filesharing");
+    cb(null, "./filesharing"); // Save in filesharing folder
   },
   filename: (req, file, cb) => {
-    // Add a timestamp to the filename to avoid conflicts
     cb(null, `${Date.now()}-${file.originalname}`);
   },
 });
 
+// Allowed file types
+const allowedTypes = [
+  "image/png", "image/jpeg", "image/avif",
+  "application/pdf", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/zip", "application/x-zip-compressed",
+  "multipart/x-zip", "application/x-compressed",
+  "audio/mpeg", "audio/wav", "audio/ogg", "video/mp4"
+];
+
+// File upload configuration
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // Limit file size to 10MB (adjust as needed)
+    fileSize: 10 * 1024 * 1024, // 10MB max per file
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/png",
-      "image/jpeg",
-      "image/avif",
-      "application/pdf",
-      "application/msword", // .doc
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-      "application/zip", // ZIP file
-      "application/x-zip-compressed", // Alternative ZIP MIME type
-      "multipart/x-zip", // Alternative ZIP MIME type
-      "application/x-compressed", // Alternative ZIP MIME type    'audio/mpeg', // .mp3    'audio/mpeg', // .mp3
-      "audio/wav",
-      "audio/ogg",
-      "video/mp4",
-    ];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -45,38 +39,30 @@ const upload = multer({
   },
 });
 
-// Define routes
+// Routes
 router.get("/messages", authenticateJWT, messageController.getMessages);
+
 router.post(
   "/send-message",
   authenticateJWT,
-  upload.single("file"),
-  messageController.sendMessage
-);
-router.delete("/deleteforme/", authenticateJWT, messageController.deleteforme);
-router.delete(
-  "/deleteforeveryone/",
-  authenticateJWT,
-  messageController.deleteforeveryone
-);
-router.put("/updatemessages/", authenticateJWT, messageController.Editmessage);
-router.get("/messages", authenticateJWT, messageController.getMessages);
-router.post(
-  "/send-message",
-  authenticateJWT,
-  upload.single("file"),
+  upload.array("file", 10), // Allow up to 10 files per request
   messageController.sendMessage
 );
 
-// Handle Multer errors
-router.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({ error: "File size exceeds 10MB limit!" });
-    }
-  } else if (err) {
-    return res.status(400).json({ error: err.message });
-  }
-  next();
-});
+router.delete("/deleteforme", authenticateJWT, messageController.deleteforme);
+
+router.delete("/deleteforeveryone", authenticateJWT, messageController.deleteforeveryone);
+
+router.put("/updatemessages", authenticateJWT, messageController.Editmessage);
+
+// // Multer error handling
+// router.use((err, req, res, next) => {
+//   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+//     return res.status(400).json({ error: "File size exceeds 10MB limit!" });
+//   } else if (err) {
+//     return res.status(400).json({ error: err.message });
+//   }
+//   next();
+// });
+
 module.exports = router;

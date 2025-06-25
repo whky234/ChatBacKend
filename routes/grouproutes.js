@@ -11,6 +11,8 @@ router.post('/switch-admin', authenticateJWT, groupController.switchAdmin);
 router.get('/fetchgroupusers', authenticateJWT, groupController.getUserGroups);
 router.delete('/leavegroup/:groupId', authenticateJWT, groupController.leaveGroup);
 
+router.delete("/remove-member",authenticateJWT, groupController.removeMemberFromGroup);
+
 router.get('/group/:groupId', async (req, res) => {
     try {
       const group = await Group.findById(req.params.groupId).populate('members', 'name email');

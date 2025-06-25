@@ -128,15 +128,25 @@ exports.addMembersToGroup = async (req, res) => {
       });
     }
 
+    const io = req.app.get("io"); // get io instance
+
+
     // Update the group members
     group.members = [...updatedMembersSet];
     await group.save();
+     // 🔔 Emit event to all new members
+newMembers.forEach(memberId => {
+  io.to(memberId).emit("group-added", group); // Send group data
+  console.log(`Group added event emitted to ${memberId}`);
+});
 
     res.status(200).json({ message: "Members added successfully", group });
   } catch (error) {
     console.error("Error adding members:", error);
     res.status(500).json({ message: "Error adding members", error });
   }
+
+ 
 };
 
 
@@ -261,3 +271,55 @@ exports.leaveGroup = async (req, res) => {
   }
 };
 
+// Remove a member from the group (Admin-only)
+exports.removeMemberFromGroup = async (req, res) => {
+  const { groupId, memberId } = req.body;
+  const currentUser = req.user.id;
+
+  const isConnected = await checkInternetConnection();
+  if (!isConnected) {
+    return res
+      .status(503)
+      .json({ message: "No internet connection. Please try again later." });
+  }
+
+  try {
+    const group = await Group.findById(groupId);
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found." });
+    }
+
+    // Only admin can remove members
+    if (group.admin.toString() !== currentUser) {
+      return res
+        .status(403)
+        .json({ message: "Only the admin can remove members." });
+    }
+
+    // Prevent admin from removing themselves via this endpoint
+    if (memberId === currentUser) {
+      return res.status(400).json({
+        message: "Admin cannot remove themselves. Use the leave group function.",
+      });
+    }
+
+    // Check if member is part of the group
+    if (!group.members.includes(memberId)) {
+      return res.status(404).json({ message: "User is not a member of the group." });
+    }
+
+    // Remove the member
+    group.members = group.members.filter((id) => id.toString() !== memberId);
+    await group.save();
+
+    // Notify removed member via socket
+    const io = req.app.get("io");
+    io.to(memberId).emit("group:removed", { groupId });
+
+    res.status(200).json({ message: "Member removed successfully", group });
+  } catch (error) {
+    console.error("Error removing member:", error);
+    res.status(500).json({ message: "Error removing member", error });
+  }
+};

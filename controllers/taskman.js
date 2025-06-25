@@ -113,39 +113,59 @@ exports.updateTaskStatus = async (req, res) => {
 
     // Find the assignee (if user is assigned)
     const assignee = task.assignedTo.find(a => a.userId.toString() === userId);
+    const allInReview = task.assignedTo.every(a => a.status === 'in-review');
 
-    // 🔹 Only the creator can mark the task as "completed"
-    if (status === "completed") {
-      if (task.createdBy?._id.toString() !== userId) {
-        return res.status(403).json({ message: 'Only the task creator can mark it as completed.' });
-      }
 
-     
+  // ✅ If trying to complete the task
+if (status === "completed") {
+  if (!task.createdBy?._id.equals(userId)) {
+    return res.status(403).json({ message: 'Only the task creator can mark the task as completed.' });
+  }
 
-      // Check if all assignees are in "in-review"
-      const allInReview = task.assignedTo.every(a => a.status === 'in-review');
+  const allInReview = task.assignedTo.every(a => a.status === 'in-review');
+  if (!allInReview) {
+    return res.status(400).json({ message: 'All assignees must be in "in-review" before completing the task.' });
+  }
 
-      if (!allInReview) {
-        return res.status(400).json({ message: 'All assignees must be in "in-review" before completing the task.' });
-      }
-       
-      
-      
+  task.status = 'completed';
+  task.assignedTo.forEach(a => a.status = 'completed');
 
-     
-      // Mark task as completed
-      task.status = 'completed';
-      task.assignedTo.forEach(a => (a.status = 'completed')); // Mark all assignees as completed
+  await group.save();
+  req.app.get('io').to(taskId).emit('taskUpdated', { task });
 
-      await group.save();
-      req.app.get('io').to(taskId).emit('taskUpdated', { task });
-      return res.status(200).json({ message: 'Task completed successfully', task });
+  return res.status(200).json({ message: 'Task completed successfully', task });
+}
+
+
+
+// 🔹 Assignees can only update their own status (excluding 'completed')
+// 🔹 Assignees can only update their own status (excluding 'completed')
+if (!assignee) {
+  return res.status(403).json({ message: 'You are not assigned to this task.' });
+}
+
+// Prevent assignee from marking other assignee's status
+task.assignedTo = task.assignedTo.map(a => {
+  if (a.userId.toString() === userId) {
+    // Only allow updating from "pending" to "in-progress" or "in-review"
+    if (a.status === "pending" && status === "in-progress") {
+      return { ...a, status: "in-progress" };
     }
 
-    // 🔹 Assignees can only update their own status
-    if (!assignee) {
-      return res.status(403).json({ message: 'You can only update your own task status.' });
+    if (a.status === "in-progress" && status === "in-review") {
+      return { ...a, status: "in-review" };
     }
+
+    return a; // No invalid change allowed
+  }
+  return a; // Others unchanged
+});
+
+await group.save();
+
+
+assignee.status = status === 'in-review' ? 'in-review' : status;
+await group.save();
 
     if (status === 'in-review') {
       assignee.status = 'in-review';
@@ -155,8 +175,10 @@ exports.updateTaskStatus = async (req, res) => {
 
     await group.save();
 
+   
+
+
      // ✅ Check if all assignees are in "in-review" and notify the creator
-    const allInReview = task.assignedTo.every(a => a.status === 'in-review');
     if (allInReview && task.createdBy?.email) {
       const taskTitle = task.title || "Unnamed Task";
       const creatorEmail = task.createdBy.email;

@@ -42,12 +42,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // Limit file size to 10MB (adjust as needed)
+    fileSize: 20 * 1024 * 1024, // Limit file size to 20MB (adjust as needed)
   },
    fileFilter });
 
 // Group message routes
-router.post('/send', authenticateJWT, upload.single('file'), groupMessageController.sendMessageToGroup);
+router.post('/send', authenticateJWT,  upload.array("file", 10), groupMessageController.sendMessageToGroup);
 router.get('/messages', authenticateJWT, groupMessageController.getGroupMessages);
 router.delete('/Deleteforme/', authenticateJWT, groupMessageController.deleteForMe);
 router.delete('/Deleteforevery/', authenticateJWT, groupMessageController.deleteForEveryone);
